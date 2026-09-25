@@ -1,0 +1,10 @@
+- name: My First Play
+  hosts: monitoring_servers
+  become: true
+  tasks:
+  - name: Make access user.
+    ansible.builtin.ping:
+  
+  - name: Print message
+    ansible.builtin.debug:
+      msg: Hello world
