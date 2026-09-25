@@ -5,6 +5,10 @@
     new_user: "offworld-admin"
 
   tasks:
+  - name: Hello World Message
+    ansible.builtin.debug:
+      msg: Hello World!
+
   - name: Create Human User
     ansible.builtin.user:
       name: "{{ new_user }}"
@@ -12,7 +16,58 @@
       shell: /bin/bash
       groups: sudo
       append: true
+
+  - name: Install Docker Requirements
+    ansible.builtin.apt:
+      name:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - lsb-release
+      state: present
+      update_cache: true
+
+  - name: Ensure Pip
+    ansible.builtin.pip:
+      name: requests
+      state: present
+
+  - name: Ensure Docker service is installed
+    ansible.builtin.package:
+      name: docker
+      start: present
+
+  - name: Make sure Docker service is running
+    ansible.builtin.service:
+      name: docker
+      start: started
+      enabled: true
+  
+  # - name: Setup Docker
+  #   ansible.builtin.file:
+  #     path: /etc/docker
+  #     state: directory
+  #     mode: '0755'
+    
+  # - name: Configure Docker Daemon
+  #   ansible.builtin.copy:
+  #     dest: /etc/docker/daemon.json
+  #     mode: '0644'
+  #     content: |
+  #       {
+  #         "metrics-addr": "0.0.0.0:9232",
+  #         "experimental"
+  #       }
+  #   notify: restart docker
+  
+  # - name: Add new user to docker group
+  #   ansible.builtin.user:
+  #     name: "{{ new_user }}"
+  #     groups: docker
+  #     append: true
+
   
   - name: Print message
     ansible.builtin.debug:
-      msg: Hello world
+      msg: All Done Provisioning
