@@ -28,20 +28,20 @@
       state: present
       update_cache: true
 
-  - name: Ensure Pip
-    ansible.builtin.pip:
-      name: requests
-      state: present
+  # - name: Ensure Pip
+  #   ansible.builtin.pip:
+  #     name: requests
+  #     state: present
 
   - name: Ensure Docker service is installed
     ansible.builtin.package:
       name: docker
-      start: present
+      state: present
 
   - name: Make sure Docker service is running
     ansible.builtin.service:
       name: docker
-      start: started
+      state: started
       enabled: true
   
   # - name: Setup Docker
