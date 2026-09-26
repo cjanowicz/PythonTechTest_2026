@@ -1,2 +1,12 @@
 ---
-grafana_url: "http://192.168.0.0"
+# This needs to be changed
+grafana_url: "http://192.168.0.0:3000"
+grafana_token: "Token_Goes_Here"
+
+grafana_datasources:
+  - name: Prometheus
+    ds_type: prometheus
+    ds_url: "http://192.168.0.0:3000"
+    if_default: true
+
+

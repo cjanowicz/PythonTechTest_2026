@@ -3,6 +3,7 @@
   become: true
   vars:
     new_user: "offworld-admin"
+    grafana_version: "13.2.2"
 
   tasks:
   - name: Hello World Message
@@ -17,32 +18,101 @@
       groups: sudo
       append: true
 
-  - name: Install Docker Requirements
+  - name: Install Docker repository prerequisites
     ansible.builtin.apt:
       name:
-        - apt-transport-https
         - ca-certificates
         - curl
-        - gnupg
-        - lsb-release
       state: present
       update_cache: true
 
-  # - name: Ensure Pip
-  #   ansible.builtin.pip:
-  #     name: requests
-  #     state: present
+  - name: Ensure apt keyring directory exists
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
 
-  - name: Ensure Docker service is installed
-    ansible.builtin.package:
-      name: docker
+  - name: Download Docker repository signing key
+    ansible.builtin.get_url:
+      url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+      dest: /etc/apt/keyrings/docker.asc
+      mode: '0644'
+
+  - name: Add Docker apt repository
+    ansible.builtin.apt_repository:
+      repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+      filename: docker
       state: present
+      update_cache: true
 
-  - name: Make sure Docker service is running
+  - name: Install Docker Engine and Python SDK
+    ansible.builtin.apt:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-buildx-plugin
+        - docker-compose-plugin
+        - python3-docker
+      state: present
+      update_cache: true
+  
+  # Testing that this inserted task doesn't break things. 
+  - name: Insert Docker Daemon Template
+    ansible.builtin.template:
+      src: docker-daemon.json.j2
+      dest: /etc/docker/daemon.json
+      mode: '0644'
+    notify: Restart Docker
+
+  - name: Enable and start Docker
     ansible.builtin.service:
       name: docker
       state: started
       enabled: true
+    
+  # - name: Run Prometheus Node Exporter Container
+  #   community.docker.docker_container:
+  #     name: node-exporter
+  #     image: prom/node-exporter:v1.12.1
+  #     state: started
+  #     restart_policy: unless-stopped
+  #     network_mode: host
+  #     command:
+  #       - '--path.rootfs=/host'
+  #       - '--path.sysfs=/host/sys'
+  #       - '--path.rootfs=/host'
+  #     volumes:
+  #       - /proc:/host/proc:ro
+  #       - /sys:/host/sys:ro
+  #       - /:/host:ro,rslave
+
+  - name: Ensure Grafana data volume exists
+    community.docker.docker_volume:
+      name: grafana-data
+      state: present
+
+  - name: Start Grafana container
+    community.docker.docker_container:
+      name: grafana
+      image: "grafana/grafana:{{ grafana_version }}"
+      state: started
+      restart_policy: unless-stopped
+      ports:
+        - "3000:3000"
+      volumes:
+        - grafana-data:/var/lib/grafana
+
+  # - name: Ensure Docker service is installed
+  #   ansible.builtin.package:
+  #     name: docker
+  #     state: present
+
+  # - name: Make sure Docker service is running
+  #   ansible.builtin.service:
+  #     name: docker
+  #     state: started
+  #     enabled: true
   
   # - name: Setup Docker
   #   ansible.builtin.file:
@@ -71,3 +141,11 @@
   - name: Print message
     ansible.builtin.debug:
       msg: All Done Provisioning
+
+  handlers:
+    - name: Restart Docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+
+
