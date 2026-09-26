@@ -1,16 +1,15 @@
 global:
-    scrape_interval: 15s
+  scrape_interval: 15s
 
 scrape_configs:
-    - job_name: node
-      static_configs:
+  - job_name: node
+    static_configs:
       - targets: ["{{ ansible_host }}:9100"]
-      labels:
-        instance: "{{ inventory_hostname }}"
-    
-    - job_name: docker
-      static_configs:
-        {% for host in groups['monitoring_servers'] %}
-        - targets: ["{{ ansible_host }}:9323"]
+        labels:
+          instance: "{{ inventory_hostname }}"
+
+  - job_name: docker
+    static_configs:
+      - targets: ["{{ ansible_host }}:9323"]
         labels:
           instance: "{{ inventory_hostname }}"

@@ -4,6 +4,8 @@
   vars:
     new_user: "offworld-admin"
     grafana_version: "13.2.2"
+    prometheus_node_exporter_version: "v1.12.1"
+    prometheus_version: "v3.15.0"
 
   tasks:
   - name: Hello World Message
@@ -74,7 +76,7 @@
   - name: Run Prometheus Node Exporter Container
     community.docker.docker_container:
       name: node-exporter
-      image: prom/node-exporter:v1.12.1
+      image: "prom/node-exporter:{{ prometheus_node_exporter_version }}"
       state: started
       restart_policy: unless-stopped
       network_mode: host
@@ -100,6 +102,8 @@
     loop:
       - /opt/monitoring
       - /opt/monitoring/grafana/provisioning/datasources
+      - /opt/monitoring/grafana/provisioning/dashboards
+      - /opt/monitoring/grafana/dashboards
     
   - name: Install Prometheus Configuration
     ansible.builtin.template:
@@ -113,6 +117,24 @@
       dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
       mode: '0644'
 
+  - name: Put the Grafana dashboard configuration on the host
+    ansible.builtin.copy:
+      src: templates/dashboard-provider.yml
+      dest: /opt/monitoring/grafana/provisioning/dashboards/provider.yml
+      mode: '0644'
+
+  - name: Copy Docker Dashboard configuration to the host
+    ansible.builtin.copy:
+      src: templates/host-docker-dashboard.json
+      dest: /opt/monitoring/grafana/dashboards/host-docker-overview.json
+      mode: '0644'
+
+  - name: Copy Custom made Dashboard configuration to the host
+    ansible.builtin.copy:
+      src: templates/host-custom-dashboard.json
+      dest: /opt/monitoring/grafana/dashboards/host-custom-overview.json
+      mode: '0644'
+
   - name: create monitoring Docker network
     community.docker.docker_network:
       name: monitoring
@@ -121,7 +143,7 @@
   - name: Start Prometheus Container
     community.docker.docker_container:
       name: prometheus
-      image: prom/prometheus:3.15.0
+      image: "prom/prometheus:{{ prometheus_version }}"
       state: started
       restart_policy: unless-stopped
       ports:
@@ -143,7 +165,9 @@
         - name: monitoring
       volumes:
         - grafana-data:/var/lib/grafana
+        - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
         - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+        - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
 
 
 ## Old Half Complete Version
