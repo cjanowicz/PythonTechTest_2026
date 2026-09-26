@@ -1,0 +1,119 @@
+- name: Provision Machine
+  hosts: monitoring_servers
+  become: true
+  vars:
+    new_user: "offworld-admin"
+    grafana_version: "13.2.2"
+
+  tasks:
+  - name: Hello World Message
+    ansible.builtin.debug:
+      msg: Hello World!
+
+  - name: Create Human User
+    ansible.builtin.user:
+      name: "{{ new_user }}"
+      password: "{{ new_user_password | password_hash('sha512')}}"
+      shell: /bin/bash
+      groups: sudo
+      append: true
+
+  - name: Install Docker repository prerequisites
+    ansible.builtin.apt:
+      name:
+        - ca-certificates
+        - curl
+      state: present
+      update_cache: true
+
+  - name: Ensure apt keyring directory exists
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
+
+  - name: Download Docker repository signing key
+    ansible.builtin.get_url:
+      url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+      dest: /etc/apt/keyrings/docker.asc
+      mode: '0644'
+
+  - name: Add Docker apt repository
+    ansible.builtin.apt_repository:
+      repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+      filename: docker
+      state: present
+      update_cache: true
+
+  - name: Install Docker Engine and Python SDK
+    ansible.builtin.apt:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-buildx-plugin
+        - docker-compose-plugin
+        - python3-docker
+      state: present
+      update_cache: true
+
+  - name: Enable and start Docker
+    ansible.builtin.service:
+      name: docker
+      state: started
+      enabled: true
+
+  - name: Ensure Grafana data volume exists
+    community.docker.docker_volume:
+      name: grafana-data
+      state: present
+
+  - name: Start Grafana container
+    community.docker.docker_container:
+      name: grafana
+      image: "grafana/grafana:{{ grafana_version }}"
+      state: started
+      restart_policy: unless-stopped
+      ports:
+        - "3000:3000"
+      volumes:
+        - grafana-data:/var/lib/grafana
+
+  # - name: Ensure Docker service is installed
+  #   ansible.builtin.package:
+  #     name: docker
+  #     state: present
+
+  # - name: Make sure Docker service is running
+  #   ansible.builtin.service:
+  #     name: docker
+  #     state: started
+  #     enabled: true
+  
+  # - name: Setup Docker
+  #   ansible.builtin.file:
+  #     path: /etc/docker
+  #     state: directory
+  #     mode: '0755'
+    
+  # - name: Configure Docker Daemon
+  #   ansible.builtin.copy:
+  #     dest: /etc/docker/daemon.json
+  #     mode: '0644'
+  #     content: |
+  #       {
+  #         "metrics-addr": "0.0.0.0:9232",
+  #         "experimental"
+  #       }
+  #   notify: restart docker
+  
+  # - name: Add new user to docker group
+  #   ansible.builtin.user:
+  #     name: "{{ new_user }}"
+  #     groups: docker
+  #     append: true
+
+  
+  - name: Print message
+    ansible.builtin.debug:
+      msg: All Done Provisioning
