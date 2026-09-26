@@ -1,4 +1,0 @@
----
-ansible_password: "Granite1Pecan2Snore" 
-ansible_become_password: "Granite1Pecan2Snore" 
-new_user_password: "Marble1Pine2Cough" 
