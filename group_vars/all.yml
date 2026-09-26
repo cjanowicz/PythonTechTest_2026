@@ -6,7 +6,6 @@ grafana_token: "Token_Goes_Here"
 grafana_datasources:
   - name: Prometheus
     ds_type: prometheus
-    ds_url: "http://192.168.0.0:3000"
+    ds_url: "http://192.168.0.0:9090"
     if_default: true
-
 
