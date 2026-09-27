@@ -1,4 +1,7 @@
 ---
+controller_ssh_key_path: "{{ lookup('env', 'HOME') }}/.ssh/ansible_provision_ed25519"
+controller_bootstrap_state_dir: "{{ lookup('env', 'HOME') }}/.local/state/ansible-provisioning"
+
 grafana_datasources:
   - name: Prometheus
     ds_type: prometheus

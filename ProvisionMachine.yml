@@ -1,200 +1,268 @@
 ---
-- name: Provision monitoring_servers Inventory
+- name: Prepare the Ansible control node SSH key
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Ensure the control-node SSH directory exists
+      ansible.builtin.file:
+        path: "{{ controller_ssh_key_path | dirname }}"
+        state: directory
+        mode: '0700'
+
+    - name: Generate the Ansible provisioner SSH key if it does not exist
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -C
+          - ansible_provision@ansible-control-node
+          - -f
+          - "{{ controller_ssh_key_path }}"
+        creates: "{{ controller_ssh_key_path }}"
+
+    - name: Restrict access to the control-node private key
+      ansible.builtin.file:
+        path: "{{ controller_ssh_key_path }}"
+        state: file
+        mode: '0600'
+
+    - name: Ensure the local SSH bootstrap state directory exists
+      ansible.builtin.file:
+        path: "{{ controller_bootstrap_state_dir }}"
+        state: directory
+        mode: '0700'
+
+- name: Bootstrap SSH key access for the Ansible provisioner
+  hosts: monitoring_servers
+  gather_facts: false
+  become: false
+  vars:
+    controller_public_key: "{{ lookup('file', controller_ssh_key_path + '.pub') | trim }}"
+    controller_bootstrap_marker: >-
+      {{ controller_bootstrap_state_dir }}/{{ inventory_hostname }}-{{ controller_public_key | hash('sha256') }}
+  tasks:
+    - name: Check whether this host has already been bootstrapped
+      ansible.builtin.stat:
+        path: "{{ controller_bootstrap_marker }}"
+      delegate_to: localhost
+      register: bootstrap_marker
+
+    - name: Authorize the control-node key for the Ansible login account
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ controller_public_key }}"
+        state: present
+      when: not bootstrap_marker.stat.exists
+
+    - name: Record successful SSH key bootstrap on the control node
+      ansible.builtin.file:
+        path: "{{ controller_bootstrap_marker }}"
+        state: touch
+        mode: '0600'
+      delegate_to: localhost
+      when: not bootstrap_marker.stat.exists
+
+- name: Provision monitoring_servers Inventory using SSH key authentication
   hosts: monitoring_servers
   become: true
   vars:
+    ansible_password: null
+    ansible_ssh_private_key_file: "{{ controller_ssh_key_path }}"
     new_user: "offworld-admin"
     grafana_version: "13.2.2"
     prometheus_node_exporter_version: "v1.12.1"
     prometheus_version: "v3.15.0"
+  tasks:
+    - name: Print message
+      ansible.builtin.debug:
+        msg: "Provisioning machine {{ ansible_host }}"
 
-  tasks: 
+    - name: Create Human Admin User
+      ansible.builtin.user:
+        name: "{{ new_user }}"
+        password: "{{ new_user_password | password_hash('sha512')}}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        state: present
+      register: new_user_result
 
-  - name: Print message
-    ansible.builtin.debug:
-      msg: "Provisioning machine {{ ansible_host }}"
+    - name: Add the specified public keys to the offworld-admin account
+      ansible.posix.authorized_key:
+        user: "{{ new_user }}"
+        key: "{{ item }}"
+        state: present
+      loop: "{{ offworld_admin_ssh_keys }}"
+      register: ssh_key_result
 
-  - name: Create Human Admin User
-    ansible.builtin.user:
-      name: "{{ new_user }}"
-      password: "{{ new_user_password | password_hash('sha512')}}"
-      shell: /bin/bash
-      groups: sudo
-      append: true
-      state: present
-    register: new_user_result
+    - name: print host server distribution release
+      ansible.builtin.debug:
+        msg: "ansible_distribution_release = {{ ansible_distribution_release }}"
 
-  - name: Add the specified public keys to the offworld-admin account
-    ansible.posix.authorized_key:
-      user: "{{ new_user }}"
-      key: "{{ item }}"
-      state: present
-    loop: "{{ offworld_admin_ssh_keys }}"
-    register: ssh_key_result
+    - name: Account for still-mounted installation media on host, from virtual machine, being invalid apt sources
+      ansible.builtin.apt_repository:
+        repo: "deb [check-date=no] file:///cdrom {{ ansible_distribution_release }} main restricted"
+        state: absent
+        update_cache: false
+      when: ansible_distribution == "Ubuntu"
 
-  - name: print host server distribution release
-    ansible.builtin.debug:
-      msg: "ansible_distribution_release = {{ ansible_distribution_release }}"
+    - name: Install Docker repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
 
-  - name: Account for still-mounted installation media on host, from virtual machine, being invalid apt sources
-    ansible.builtin.apt_repository:
-      repo: "deb [check-date=no] file:///cdrom {{ ansible_distribution_release }} main restricted"
-      state: absent
-      update_cache: false
-    when: ansible_distribution == "Ubuntu"
+    - name: Ensure apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
 
-  - name: Install Docker repository prerequisites
-    ansible.builtin.apt:
-      name:
-        - ca-certificates
-        - curl
-      state: present
-      update_cache: true
+    - name: Download Docker repository signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
 
-  - name: Ensure apt keyring directory exists
-    ansible.builtin.file:
-      path: /etc/apt/keyrings
-      state: directory
-      mode: '0755'
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+        filename: docker
+        state: present
+        update_cache: true
 
-  - name: Download Docker repository signing key
-    ansible.builtin.get_url:
-      url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
-      dest: /etc/apt/keyrings/docker.asc
-      mode: '0644'
+    - name: Install Docker Engine and Python SDK
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+          - python3-docker
+        state: present
+        update_cache: true
 
-  - name: Add Docker apt repository
-    ansible.builtin.apt_repository:
-      repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
-      filename: docker
-      state: present
-      update_cache: true
+      # Testing that this inserted task doesn't break things.
+    - name: Insert Docker Daemon Template
+      ansible.builtin.template:
+        src: templates/docker-daemon.json.j2
+        dest: /etc/docker/daemon.json
+        mode: '0644'
+      notify: Restart Docker
 
-  - name: Install Docker Engine and Python SDK
-    ansible.builtin.apt:
-      name:
-        - docker-ce
-        - docker-ce-cli
-        - containerd.io
-        - docker-buildx-plugin
-        - docker-compose-plugin
-        - python3-docker
-      state: present
-      update_cache: true
-  
-  # Testing that this inserted task doesn't break things. 
-  - name: Insert Docker Daemon Template
-    ansible.builtin.template:
-      src: templates/docker-daemon.json.j2
-      dest: /etc/docker/daemon.json
-      mode: '0644'
-    notify: Restart Docker
+    - name: Enable and start Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
 
-  - name: Enable and start Docker
-    ansible.builtin.service:
-      name: docker
-      state: started
-      enabled: true
+    - name: Run Prometheus Node Exporter Container
+      community.docker.docker_container:
+        name: node-exporter
+        image: "prom/node-exporter:{{ prometheus_node_exporter_version }}"
+        state: started
+        restart_policy: unless-stopped
+        network_mode: host
+        command:
+          - '--path.procfs=/host/proc'
+          - '--path.sysfs=/host/sys'
+          - '--path.rootfs=/host'
+        volumes:
+          - /proc:/host/proc:ro
+          - /sys:/host/sys:ro
+          - /:/host:ro,rslave
+
+    - name: Ensure Grafana data volume exists
+      community.docker.docker_volume:
+        name: grafana-data
+        state: present
+
+    - name: Make directories for monotiring configurations
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /opt/monitoring
+        - /opt/monitoring/grafana/provisioning/datasources
+        - /opt/monitoring/grafana/provisioning/dashboards
+        - /opt/monitoring/grafana/dashboards
+
+    - name: Install Prometheus Configuration
+      ansible.builtin.template:
+        src: templates/prometheus.yml.j2
+        dest: /opt/monitoring/prometheus.yml
+        mode: '0644'
+
+    - name: Copy the Prometheus configuration into Grafana
+      ansible.builtin.copy:
+        src: templates/prometheus-datasource.yml
+        dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
+        mode: '0644'
+
+    - name: Put the Grafana dashboard configuration on the host
+      ansible.builtin.copy:
+        src: templates/dashboard-provider.yml
+        dest: /opt/monitoring/grafana/provisioning/dashboards/provider.yml
+        mode: '0644'
+
+    - name: Copy Docker Dashboard configuration to the host
+      ansible.builtin.copy:
+        src: templates/host-docker-dashboard.json
+        dest: /opt/monitoring/grafana/dashboards/host-docker-overview.json
+        mode: '0644'
+
+    - name: Copy Custom made Dashboard configuration to the host
+      ansible.builtin.copy:
+        src: templates/host-custom-dashboard.json
+        dest: /opt/monitoring/grafana/dashboards/host-custom-overview.json
+        mode: '0644'
+
+    - name: create monitoring Docker network
+      community.docker.docker_network:
+        name: monitoring
+        state: present
+
+    - name: Start Prometheus Container
+      community.docker.docker_container:
+        name: prometheus
+        image: "prom/prometheus:{{ prometheus_version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "9090:9090"
+        networks:
+          - name: monitoring
+        volumes:
+          - /opt/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     
-  - name: Run Prometheus Node Exporter Container
-    community.docker.docker_container:
-      name: node-exporter
-      image: "prom/node-exporter:{{ prometheus_node_exporter_version }}"
-      state: started
-      restart_policy: unless-stopped
-      network_mode: host
-      command:
-        - '--path.procfs=/host/proc'
-        - '--path.sysfs=/host/sys'
-        - '--path.rootfs=/host'
-      volumes:
-        - /proc:/host/proc:ro
-        - /sys:/host/sys:ro
-        - /:/host:ro,rslave
-
-  - name: Ensure Grafana data volume exists
-    community.docker.docker_volume:
-      name: grafana-data
-      state: present
-
-  - name: Make directories for monotiring configurations
-    ansible.builtin.file:
-      path: "{{ item }}"
-      state: directory
-      mode: '0755'
-    loop:
-      - /opt/monitoring
-      - /opt/monitoring/grafana/provisioning/datasources
-      - /opt/monitoring/grafana/provisioning/dashboards
-      - /opt/monitoring/grafana/dashboards
+    - name: Start Grafana container
+      community.docker.docker_container:
+        name: grafana
+        image: "grafana/grafana:{{ grafana_version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "3000:3000"
+        networks:
+          - name: monitoring
+        volumes:
+          - grafana-data:/var/lib/grafana
+          - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+          - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+          - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
     
-  - name: Install Prometheus Configuration
-    ansible.builtin.template:
-      src: templates/prometheus.yml.j2
-      dest: /opt/monitoring/prometheus.yml
-      mode: '0644'
-
-  - name: Copy the Prometheus configuration into Grafana
-    ansible.builtin.copy:
-      src: templates/prometheus-datasource.yml
-      dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
-      mode: '0644'
-
-  - name: Put the Grafana dashboard configuration on the host
-    ansible.builtin.copy:
-      src: templates/dashboard-provider.yml
-      dest: /opt/monitoring/grafana/provisioning/dashboards/provider.yml
-      mode: '0644'
-
-  - name: Copy Docker Dashboard configuration to the host
-    ansible.builtin.copy:
-      src: templates/host-docker-dashboard.json
-      dest: /opt/monitoring/grafana/dashboards/host-docker-overview.json
-      mode: '0644'
-
-  - name: Copy Custom made Dashboard configuration to the host
-    ansible.builtin.copy:
-      src: templates/host-custom-dashboard.json
-      dest: /opt/monitoring/grafana/dashboards/host-custom-overview.json
-      mode: '0644'
-
-  - name: create monitoring Docker network
-    community.docker.docker_network:
-      name: monitoring
-      state: present
-
-  - name: Start Prometheus Container
-    community.docker.docker_container:
-      name: prometheus
-      image: "prom/prometheus:{{ prometheus_version }}"
-      state: started
-      restart_policy: unless-stopped
-      ports:
-        - "9090:9090"
-      networks:
-        - name: monitoring
-      volumes:
-        - /opt/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-  
-  - name: Start Grafana container
-    community.docker.docker_container:
-      name: grafana
-      image: "grafana/grafana:{{ grafana_version }}"
-      state: started
-      restart_policy: unless-stopped
-      ports:
-        - "3000:3000"
-      networks:
-        - name: monitoring
-      volumes:
-        - grafana-data:/var/lib/grafana
-        - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-        - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-        - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-  
-  - name: Print message
-    ansible.builtin.debug:
-      msg: All Done Provisioning
+    - name: Print message
+      ansible.builtin.debug:
+        msg: All Done Provisioning
 
   handlers:
     - name: Restart Docker
