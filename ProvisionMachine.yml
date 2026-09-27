@@ -1,31 +1,10 @@
 ---
-
-## TODO: 
-
-## Figure out how the ansible SSH keys should work. 
-## https://oneuptime.com/blog/post/2026-02-21-how-to-use-ansible-to-manage-ssh-authorized-keys/view 
-## Run test of this with a fresh version of the host server, 
-## and a fresh version of the ansible server.
-
-## Finally look into installing tools from here: https://www.redhat.com/en/blog/favorite-linux-sysadmin-tools 
-## With "if Ubuntu" set up on it just to show I can use that. 
-
-## Finally I should run this on my fresh windows machine to ensure that it will run on not just Ubuntu and verify that it will work on build machines.
-
-## Finally, set up the Python script that I am using for this tech test. 
-## I wanted to test if I can make a service account, share the API Token, and then upload, but share with the google drive of the specified account. 
-## Otherwise, I can make make do with getting the token and then transferring the token to the server, but that's NOT how I did it before and it isn't very good.
-
-## Then I just need to include my setup steps for the Unreal Project Setup, and zip up my Unreal Build Graph script, and then send it off.
-
-## I just need to apologize for being really busy and having a lot of responsibilities, but I care a lot about this job and I took the opportunity to try and do everything as correctly as I was able, with minimal use of AI. 
-
 - name: First Play, set up modules for Ansible control node
   hosts: localhost
   connection: local
   gather_facts: false
 
-  tasks:
+  pre_tasks:
 
   - name: Use requirements.yml to install ansible-galaxy collections
     ansible.builtin.command:
@@ -212,43 +191,6 @@
         - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
         - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
         - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-
-
-## Old Half Complete Version
-  # - name: Ensure Docker service is installed
-  #   ansible.builtin.package:
-  #     name: docker
-  #     state: present
-
-  # - name: Make sure Docker service is running
-  #   ansible.builtin.service:
-  #     name: docker
-  #     state: started
-  #     enabled: true
-  
-  # - name: Setup Docker
-  #   ansible.builtin.file:
-  #     path: /etc/docker
-  #     state: directory
-  #     mode: '0755'
-    
-  # - name: Configure Docker Daemon
-  #   ansible.builtin.copy:
-  #     dest: /etc/docker/daemon.json
-  #     mode: '0644'
-  #     content: |
-  #       {
-  #         "metrics-addr": "0.0.0.0:9232",
-  #         "experimental"
-  #       }
-  #   notify: restart docker
-  
-  # - name: Add new user to docker group
-  #   ansible.builtin.user:
-  #     name: "{{ new_user }}"
-  #     groups: docker
-  #     append: true
-
   
   - name: Print message
     ansible.builtin.debug:
@@ -260,4 +202,24 @@
         name: docker
         state: restarted
 
+
+## TODO: 
+
+## Figure out how the ansible SSH keys should work. 
+## https://oneuptime.com/blog/post/2026-02-21-how-to-use-ansible-to-manage-ssh-authorized-keys/view 
+## Run test of this with a fresh version of the host server, 
+## and a fresh version of the ansible server.
+
+## Finally look into installing tools from here: https://www.redhat.com/en/blog/favorite-linux-sysadmin-tools 
+## With "if Ubuntu" set up on it just to show I can use that. 
+
+## Finally I should run this on my fresh windows machine to ensure that it will run on not just Ubuntu and verify that it will work on build machines.
+
+## Finally, set up the Python script that I am using for this tech test. 
+## I wanted to test if I can make a service account, share the API Token, and then upload, but share with the google drive of the specified account. 
+## Otherwise, I can make make do with getting the token and then transferring the token to the server, but that's NOT how I did it before and it isn't very good.
+
+## Then I just need to include my setup steps for the Unreal Project Setup, and zip up my Unreal Build Graph script, and then send it off.
+
+## I just need to apologize for being really busy and having a lot of responsibilities, but I care a lot about this job and I took the opportunity to try and do everything as correctly as I was able, with minimal use of AI. 
 
