@@ -39,39 +39,30 @@
     grafana_version: "13.2.2"
     prometheus_node_exporter_version: "v1.12.1"
     prometheus_version: "v3.15.0"
-    new_user_ssh_key_comment: "{{ new_user }}@{{ inventory_hostname }}@{{ ansible_host  }}"
 
   tasks: 
 
   - name: Print message
     ansible.builtin.debug:
-      msg: "Creating user with ssh key: {{ new_user_ssh_key_comment }}"
+      msg: "Provisioning machine {{ ansible_host }}"
 
-  - name: Create Human Admin User with Ed25519 key
+  - name: Create Human Admin User
     ansible.builtin.user:
       name: "{{ new_user }}"
       password: "{{ new_user_password | password_hash('sha512')}}"
       shell: /bin/bash
       groups: sudo
-      generate_ssh_key: yes
-      ssh_key_type: ed25519    
-      ssh_key_bits: 2048
-      ssh_key_file: .ssh/id_ed25519
-      ssh_key_passphrase: ""
-      ssh_key_comment: "{{ new_user_ssh_key_comment }}"
       append: true
       state: present
     register: new_user_result
-    
-  - name: Display generated public key
-    ansible.builtin.debug:
-      msg: "{{ new_user }} Public key: {{ new_user_result.ssh_public_key }}"
-    
-  # - name: Set up authorized SSH Keys for offworld-admin
-  #   ansible.posix.authorized_key:
-  #     user: "{{ new_user }}"
-  #     key: "{{ item }}"
-  #   loop: "{{ offworld_admin_ssh_keys }}"
+
+  - name: Add the specified public keys to the offworld-admin account
+    ansible.posix.authorized_key:
+      user: "{{ new_user }}"
+      key: "{{ item }}"
+      state: present
+    loop: "{{ offworld_admin_ssh_keys }}"
+    register: ssh_key_result
 
   - name: Install Docker repository prerequisites
     ansible.builtin.apt:
