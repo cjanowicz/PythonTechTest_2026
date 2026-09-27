@@ -1,16 +1,5 @@
 ---
-- name: First Play, set up modules for Ansible control node
-  hosts: localhost
-  connection: local
-  gather_facts: false
-
-  pre_tasks:
-
-  - name: Use requirements.yml to install ansible-galaxy collections
-    ansible.builtin.command:
-      cmd: ansible-galaxy collection install -r collections/requirements.yml
-
-- name: Second Play, Provision monitoring_servers Inventory
+- name: Provision monitoring_servers Inventory
   hosts: monitoring_servers
   become: true
   vars:
@@ -42,6 +31,17 @@
       state: present
     loop: "{{ offworld_admin_ssh_keys }}"
     register: ssh_key_result
+
+  - name: print host server distribution release
+    ansible.builtin.debug:
+      msg: "ansible_distribution_release = {{ ansible_distribution_release }}"
+
+  - name: Account for still-mounted installation media on host, from virtual machine, being invalid apt sources
+    ansible.builtin.apt_repository:
+      repo: "deb [check-date=no] file:///cdrom {{ ansible_distribution_release }} main restricted"
+      state: absent
+      update_cache: false
+    when: ansible_distribution == "Ubuntu"
 
   - name: Install Docker repository prerequisites
     ansible.builtin.apt:
