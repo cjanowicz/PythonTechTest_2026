@@ -1,4 +1,37 @@
-- name: Provision Machine
+---
+
+## TODO: 
+
+## Figure out how the ansible SSH keys should work. 
+## https://oneuptime.com/blog/post/2026-02-21-how-to-use-ansible-to-manage-ssh-authorized-keys/view 
+## Run test of this with a fresh version of the host server, 
+## and a fresh version of the ansible server.
+
+## Finally look into installing tools from here: https://www.redhat.com/en/blog/favorite-linux-sysadmin-tools 
+## With "if Ubuntu" set up on it just to show I can use that. 
+
+## Finally I should run this on my fresh windows machine to ensure that it will run on not just Ubuntu and verify that it will work on build machines.
+
+## Finally, set up the Python script that I am using for this tech test. 
+## I wanted to test if I can make a service account, share the API Token, and then upload, but share with the google drive of the specified account. 
+## Otherwise, I can make make do with getting the token and then transferring the token to the server, but that's NOT how I did it before and it isn't very good.
+
+## Then I just need to include my setup steps for the Unreal Project Setup, and zip up my Unreal Build Graph script, and then send it off.
+
+## I just need to apologize for being really busy and having a lot of responsibilities, but I care a lot about this job and I took the opportunity to try and do everything as correctly as I was able, with minimal use of AI. 
+
+- name: First Play, set up modules for Ansible control node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+
+  - name: Use requirements.yml to install ansible-galaxy collections
+    ansible.builtin.command:
+      cmd: ansible-galaxy collection install -r collections/requirements.yml
+
+- name: Second Play, Provision monitoring_servers Inventory
   hosts: monitoring_servers
   become: true
   vars:
@@ -6,19 +39,39 @@
     grafana_version: "13.2.2"
     prometheus_node_exporter_version: "v1.12.1"
     prometheus_version: "v3.15.0"
+    new_user_ssh_key_comment: "{{ new_user }}@{{ inventory_hostname }}@{{ ansible_host  }}"
 
-  tasks:
-  - name: Hello World Message
+  tasks: 
+
+  - name: Print message
     ansible.builtin.debug:
-      msg: Hello World!
+      msg: "Creating user with ssh key: {{ new_user_ssh_key_comment }}"
 
-  - name: Create Human User
+  - name: Create Human Admin User with Ed25519 key
     ansible.builtin.user:
       name: "{{ new_user }}"
       password: "{{ new_user_password | password_hash('sha512')}}"
       shell: /bin/bash
       groups: sudo
+      generate_ssh_key: yes
+      ssh_key_type: ed25519    
+      ssh_key_bits: 2048
+      ssh_key_file: .ssh/id_ed25519
+      ssh_key_passphrase: ""
+      ssh_key_comment: "{{ new_user_ssh_key_comment }}"
       append: true
+      state: present
+    register: new_user_result
+    
+  - name: Display generated public key
+    ansible.builtin.debug:
+      msg: "{{ new_user }} Public key: {{ new_user_result.ssh_public_key }}"
+    
+  # - name: Set up authorized SSH Keys for offworld-admin
+  #   ansible.posix.authorized_key:
+  #     user: "{{ new_user }}"
+  #     key: "{{ item }}"
+  #   loop: "{{ offworld_admin_ssh_keys }}"
 
   - name: Install Docker repository prerequisites
     ansible.builtin.apt:
